@@ -1,120 +1,235 @@
-/*
- * This exercise has been updated to use Solidity version 0.8.5
- * See the latest Solidity updates at
- * https://solidity.readthedocs.io/en/latest/080-breaking-changes.html
- */
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.5.16 <0.9.0;
 
-contract SimpleBank {
-    /* State variables
-     */
+contract SupplyChain {
 
-    // Fill in the visibility keyword.
-    // Hint: We want to protect our users balance from other contracts
-    mapping(address => uint256) internal balances;
+  // <owner>
 
-    // Fill in the visibility keyword
-    // Hint: We want to create a getter function and allow contracts to be able
-    //       to see if a user is enrolled.
-    mapping(address => bool) public enrolled;
+  address public owner;
 
-    // Let's make sure everyone knows who owns the bank, yes, fill in the
-    // appropriate visilibility keyword
-    address public owner = msg.sender;
+  // <skuCount>
 
-    /* Events - publicize actions to external listeners
-     */
+  uint public skuCount;
 
-    // Add an argument for this event, an accountAddress
-    event LogEnrolled(address accountAddress);
+  // <items mapping>
 
-    // Add 2 arguments for this event, an accountAddress and an amount
-    event LogDepositMade(address accountAddress, uint256 amount);
+  mapping(uint => Item) private items;
 
-    // Create an event called LogWithdrawal
-    // Hint: it should take 3 arguments: an accountAddress, withdrawAmount and a newBalance
-    event LogWithdrawal(
-        address accountAddress,
-        uint256 withdrawAmount,
-        uint256 newBalance
-    );
+  // <enum State: ForSale, Sold, Shipped, Received>
 
-    /* Functions
-     */
+  enum State {
+    ForSale,
+    Sold,
+    Shipped,
+    Received
+  }
 
-    // Fallback function - Called if other functions don't match call or
-    // sent ether without data
-    // Typically, called when invalid data is sent
-    // Added so ether sent to this contract is reverted if the contract fails
-    // otherwise, the sender's money is transferred to contract
-    function() external payable {
-        if (msg.value > 0) {
-            emit LogDepositMade(msg.sender, msg.value);
-        }
-        revert();
-    }
+  // <struct Item: name, sku, price, state, seller, and buyer>
+  struct Item {
+    string name;
+    uint sku;
+    uint price;
+    State state;
+    address payable seller;
+    address payable buyer;
+  }
+  /*
+   * Events
+   */
 
-    /// @notice Get balance
-    /// @return The balance of the user
-    function getBalance() public view returns (uint256) {
-        // 1. A SPECIAL KEYWORD prevents function from editing state variables;
-        //    allows function to run locally/off blockchain
-        // 2. Get the balance of the sender of this transaction
+  // <LogForSale event: sku arg>
 
-        return balances[msg.sender];
-    }
+  event LogForSale(uint sku);
 
-    /// @notice Enroll a customer with the bank
-    /// @return The users enrolled status
-    // Emit the appropriate event
-    function enroll() public returns (bool) {
-        // 1. enroll of the sender of this transaction
-        enrolled[msg.sender] = true;
+  // <LogSold event: sku arg>
 
-        emit LogEnrolled(msg.sender);
+  event LogSold(uint sku, uint refund);
 
-        return enrolled[msg.sender];
-    }
+  // <LogShipped event: sku arg>
 
-    /// @notice Deposit ether into bank
-    /// @return The balance of the user after the deposit is made
-    function deposit() public payable returns (uint256) {
-        // 1. Add the appropriate keyword so that this function can receive ether
-        // 2. Users should be enrolled before they can make deposits
+  event LogShipped(uint sku);
 
-        enrolled[msg.sender] = true;
-        // 3. Add the amount to the user's balance. Hint: the amount can be
-        //    accessed from of the global variable `msg`
-        balances[msg.sender] += msg.value;
-        // 4. Emit the appropriate event associated with this function
-        emit LogDepositMade(msg.sender, balances[msg.sender]);
-        // 5. return the balance of sndr of this transaction
-        return balances[msg.sender];
-    }
+  // <LogReceived event: sku arg>
 
-    /// @notice Withdraw ether from bank
-    /// @dev This does not return any excess ether sent to it
-    /// @param withdrawAmount amount you want to withdraw
-    /// @return The balance remaining for the user
-    function withdraw(uint256 withdrawAmount) public returns (uint256) {
-        // If the sender's balance is at least the amount they want to withdraw,
-        // Subtract the amount from the sender's balance, and try to send that amount of ether
-        // to the user attempting to withdraw.
-        // to the user attempting to withdraw.
-        // to the user attempting to withdraw.
-        // return the user's balance.
-        // 1. Use a require expression to guard/ensure sender has enough funds
+  event LogReceived(uint sku);
 
-        require(withdrawAmount <= balances[msg.sender]);
-        // 2. Transfer Eth to the sender and decrement the withdrawal amount from
-        //    sender's balance
-        balances[msg.sender] -= withdrawAmount;
-        msg.sender.transfer(withdrawAmount);
 
-        // 3. Emit the appropriate event for this message
-        emit LogWithdrawal(msg.sender, withdrawAmount, balances[msg.sender]);
+  /*
+   * Modifiers
+   */
 
-        return balances[msg.sender];
-    }
+  // Create a modifer, `isOwner` that checks if the msg.sender is the owner of the contract
+
+  // <modifier: isOwner
+  modifier isOwner() {
+    require(msg.sender == owner);
+    _;
+  }
+
+  modifier isSold(uint sku) {
+    require(items[sku].state == State.Sold);
+    _;
+  }
+
+  modifier isShipped(uint sku) {
+    require(items[sku].state == State.Shipped);
+    _;
+  }
+
+  modifier isSeller(uint sku) {
+    require (items[sku].seller == msg.sender);
+    _;
+  }
+
+  modifier isBuyer(uint sku) {
+    require (items[sku].buyer == msg.sender);
+    _;
+  }
+
+  modifier verifyCaller (address _address) {
+    require (msg.sender == _address);
+    _;
+  }
+
+  modifier paidEnough(uint sku) {
+    require(msg.value >= items[sku].price);
+    _;
+  }
+
+  modifier checkValue(uint _sku) {
+    _;
+    uint _price = items[_sku].price;
+    uint amountToRefund = msg.value - _price;
+    items[_sku].buyer.transfer(amountToRefund);
+  }
+
+  // For each of the following modifiers, use what you learned about modifiers
+  // to give them functionality. For example, the forSale modifier should
+  // require that the item with the given sku has the state ForSale. Note that
+  // the uninitialized Item.State is 0, which is also the index of the ForSale
+  // value, so checking that Item.State == ForSale is not sufficient to check
+  // that an Item is for sale. Hint: What item properties will be non-zero when
+  // an Item has been added?
+
+  // modifier forSale
+  // modifier sold(uint _sku)
+  // modifier shipped(uint _sku)
+  // modifier received(uint _sku)
+
+  constructor() public {
+    // 1. Set the owner to the transaction sender
+    owner = msg.sender;
+    // 2. Initialize the sku count to 0. Question, is this necessary? No. uint defaults to 0
+  }
+
+  function addItem(string memory _name, uint _price) public returns (bool) {
+    // 1. Create a new item and put in array
+
+    Item memory newItem = Item({
+      name: _name,
+      price: _price,
+      sku: skuCount,
+      state: State.ForSale,
+      seller: msg.sender,
+      buyer: address(0)
+    });
+
+    items[skuCount] = newItem;
+    // 2. Increment the skuCount by one
+    skuCount += 1;
+    // 3. Emit the appropriate event
+    emit LogForSale(newItem.sku);
+    // 4. return true
+
+    return true;
+
+    // hint:
+    // items[skuCount] = Item({
+    //  name: _name,
+    //  sku: skuCount,
+    //  price: _price,
+    //  state: State.ForSale,
+    //  seller: msg.sender,
+    //  buyer: address(0)
+    //});
+    //
+    //skuCount = skuCount + 1;
+    // emit LogForSale(skuCount);
+    // return true;
+  }
+
+  // Implement this buyItem function.
+  // 1. it should be payable in order to receive refunds
+  // 2. this should transfer money to the seller,
+  // 3. set the buyer as the person who called this transaction,
+  // 4. set the state to Sold.
+  // 5. this function should use 3 modifiers to check
+  //    - if the item is for sale,
+  //    - if the buyer paid enough,
+  //    - check the value after the function is called to make
+  //      sure the buyer is refunded any excess ether sent.
+  // 6. call the event associated with this function!
+  function buyItem(uint sku) paidEnough(sku) payable public {
+    require(sku <= skuCount, "Sku does not exist");
+
+    Item storage itemToBuy = items[sku];
+    require(itemToBuy.state == State.ForSale);
+
+    uint refund = msg.value - itemToBuy.price;
+
+    itemToBuy.state = State.Sold;
+    itemToBuy.buyer = msg.sender;
+
+    // Send ETH to buyer
+    (bool saleSuccess, ) = itemToBuy.seller.call.value(itemToBuy.price)("");
+
+    require(saleSuccess, "Sale failed");
+
+    // Send Refund
+    (bool refundSuccess, ) = msg.sender.call.value(refund)("");
+
+    require(refundSuccess, "Refund failed");
+
+    emit LogSold(sku, refund);
+  }
+
+  // 1. Add modifiers to check:
+  //    - the item is sold already
+  //    - the person calling this function is the seller.
+  // 2. Change the state of the item to shipped.
+  // 3. call the event associated with this function!
+  function shipItem(uint sku) isSeller(sku) isSold(sku) public {
+    items[sku].state = State.Shipped;
+    emit LogShipped(sku);
+  }
+
+  // 1. Add modifiers to check
+  //    - the item is shipped already
+  //    - the person calling this function is the buyer.
+  // 2. Change the state of the item to received.
+  // 3. Call the event associated with this function!
+  function receiveItem(uint sku) isBuyer(sku) isShipped(sku) public {
+    items[sku].state = State.Received;
+    emit LogReceived(sku);
+  }
+
+  // Uncomment the following code block. it is needed to run tests
+  function fetchItem(uint _sku) public view
+    returns (
+      string memory name,
+      uint sku,
+      uint price,
+      uint state,
+      address seller,
+      address buyer
+    ) {
+      name = items[_sku].name;
+      sku = items[_sku].sku;
+      price = items[_sku].price;
+      state = uint(items[_sku].state);
+      seller = items[_sku].seller;
+      buyer = items[_sku].buyer;
+
+      return (name, sku, price, state, seller, buyer);
+  }
 }
