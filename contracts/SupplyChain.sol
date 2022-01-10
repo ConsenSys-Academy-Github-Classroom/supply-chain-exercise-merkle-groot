@@ -1,149 +1,120 @@
+/*
+ * This exercise has been updated to use Solidity version 0.8.5
+ * See the latest Solidity updates at
+ * https://solidity.readthedocs.io/en/latest/080-breaking-changes.html
+ */
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.5.16 <0.9.0;
 
-contract SupplyChain {
-    address public owner;
-    uint256 public skuCount;
+contract SimpleBank {
+    /* State variables
+     */
 
-    mapping(uint256 => Item) items;
+    // Fill in the visibility keyword.
+    // Hint: We want to protect our users balance from other contracts
+    mapping(address => uint256) internal balances;
 
-    enum State {
-        ForSale,
-        Sold,
-        Shipped,
-        Received
-    }
-    struct Item {
-        string name;
-        uint sku;
-        uint price;
-        State state;
-        address payable seller;
-        address payable buyer;
-    }
+    // Fill in the visibility keyword
+    // Hint: We want to create a getter function and allow contracts to be able
+    //       to see if a user is enrolled.
+    mapping(address => bool) public enrolled;
 
-    event LogForSale(uint256 sku);
-    event LogSold(uint256 sku);
-    event LogShipped(uint256 sku);
-    event LogReceived(uint256 sku);
+    // Let's make sure everyone knows who owns the bank, yes, fill in the
+    // appropriate visilibility keyword
+    address public owner = msg.sender;
 
-    modifier isOwner() {
-        require(msg.sender == owner);
-        _;
-    }
+    /* Events - publicize actions to external listeners
+     */
 
-    modifier verifyCaller(address _address) {
-        require(msg.sender == _address);
-        _;
-    }
+    // Add an argument for this event, an accountAddress
+    event LogEnrolled(address accountAddress);
 
-    modifier paidEnough(uint256 _price) {
-        require(msg.value >= _price);
-        _;
-    }
+    // Add 2 arguments for this event, an accountAddress and an amount
+    event LogDepositMade(address accountAddress, uint256 amount);
 
-    modifier checkValue(uint256 _sku) {
-        _;
-        uint256 _price = items[_sku].price;
-        uint256 amountToRefund = msg.value - _price;
-        items[_sku].buyer.transfer(amountToRefund);
-    }
+    // Create an event called LogWithdrawal
+    // Hint: it should take 3 arguments: an accountAddress, withdrawAmount and a newBalance
+    event LogWithdrawal(
+        address accountAddress,
+        uint256 withdrawAmount,
+        uint256 newBalance
+    );
 
-    modifier forSale(uint256 _sku) {
-        require(
-            items[_sku].state == State.ForSale &&
-                items[_sku].buyer == address(0) &&
-                items[_sku].price > 0
-        );
-        _;
+    /* Functions
+     */
+
+    // Fallback function - Called if other functions don't match call or
+    // sent ether without data
+    // Typically, called when invalid data is sent
+    // Added so ether sent to this contract is reverted if the contract fails
+    // otherwise, the sender's money is transferred to contract
+    function() external payable {
+        if (msg.value > 0) {
+            emit LogDepositMade(msg.sender, msg.value);
+        }
+        revert();
     }
 
-    modifier sold(uint256 _sku) {
-        require(items[_sku].state == State.Sold);
-        _;
+    /// @notice Get balance
+    /// @return The balance of the user
+    function getBalance() public view returns (uint256) {
+        // 1. A SPECIAL KEYWORD prevents function from editing state variables;
+        //    allows function to run locally/off blockchain
+        // 2. Get the balance of the sender of this transaction
+
+        return balances[msg.sender];
     }
 
-    modifier shipped(uint256 _sku) {
-        require(items[_sku].state == State.Shipped);
-        _;
+    /// @notice Enroll a customer with the bank
+    /// @return The users enrolled status
+    // Emit the appropriate event
+    function enroll() public returns (bool) {
+        // 1. enroll of the sender of this transaction
+        enrolled[msg.sender] = true;
+
+        emit LogEnrolled(msg.sender);
+
+        return enrolled[msg.sender];
     }
 
-    modifier received(uint256 _sku) {
-        require(items[_sku].state == State.Received);
-        _;
+    /// @notice Deposit ether into bank
+    /// @return The balance of the user after the deposit is made
+    function deposit() public payable returns (uint256) {
+        // 1. Add the appropriate keyword so that this function can receive ether
+        // 2. Users should be enrolled before they can make deposits
+
+        enrolled[msg.sender] = true;
+        // 3. Add the amount to the user's balance. Hint: the amount can be
+        //    accessed from of the global variable `msg`
+        balances[msg.sender] += msg.value;
+        // 4. Emit the appropriate event associated with this function
+        emit LogDepositMade(msg.sender, balances[msg.sender]);
+        // 5. return the balance of sndr of this transaction
+        return balances[msg.sender];
     }
 
-    constructor() {
-        owner = msg.sender;
-        skuCount = 0;
-    }
+    /// @notice Withdraw ether from bank
+    /// @dev This does not return any excess ether sent to it
+    /// @param withdrawAmount amount you want to withdraw
+    /// @return The balance remaining for the user
+    function withdraw(uint256 withdrawAmount) public returns (uint256) {
+        // If the sender's balance is at least the amount they want to withdraw,
+        // Subtract the amount from the sender's balance, and try to send that amount of ether
+        // to the user attempting to withdraw.
+        // to the user attempting to withdraw.
+        // to the user attempting to withdraw.
+        // return the user's balance.
+        // 1. Use a require expression to guard/ensure sender has enough funds
 
-    function addItem(string memory _name, uint256 _price)
-        public
-        returns (bool)
-    {
-        items[skuCount] = Item({
-            name: _name,
-            sku: skuCount,
-            price: _price,
-            state: State.ForSale,
-            seller: payable(msg.sender),
-            buyer: payable(address(0))
-        });
-        skuCount = skuCount + 1;
-        emit LogForSale(skuCount);
-        return true;
-    }
+        require(withdrawAmount <= balances[msg.sender]);
+        // 2. Transfer Eth to the sender and decrement the withdrawal amount from
+        //    sender's balance
+        balances[msg.sender] -= withdrawAmount;
+        msg.sender.transfer(withdrawAmount);
 
-    function buyItem(uint256 sku)
-        public
-        payable
-        forSale(sku)
-        paidEnough(items[sku].price)
-        checkValue(sku)
-    {
-        items[sku].seller.transfer(items[sku].price);
-        items[sku].buyer = payable(msg.sender);
-        items[sku].state = State.Sold;
-        emit LogSold(sku);
-    }
+        // 3. Emit the appropriate event for this message
+        emit LogWithdrawal(msg.sender, withdrawAmount, balances[msg.sender]);
 
-    function shipItem(uint256 sku)
-        public
-        sold(sku)
-        verifyCaller(items[sku].seller)
-    {
-        items[sku].state = State.Shipped;
-        emit LogShipped(sku);
-    }
-
-    function receiveItem(uint256 sku)
-        public
-        shipped(sku)
-        verifyCaller(items[sku].buyer)
-    {
-        items[sku].state = State.Received;
-        emit LogReceived(sku);
-    }
-
-    function fetchItem(uint256 _sku)
-        public
-        view
-        returns (
-            string memory name,
-            uint256 sku,
-            uint256 price,
-            uint256 state,
-            address seller,
-            address buyer
-        )
-    {
-        name = items[_sku].name;
-        sku = items[_sku].sku;
-        price = items[_sku].price;
-        state = uint256(items[_sku].state);
-        seller = items[_sku].seller;
-        buyer = items[_sku].buyer;
-        return (name, sku, price, state, seller, buyer);
+        return balances[msg.sender];
     }
 }
